@@ -1,0 +1,169 @@
+# Import libraries and create a blank table in the database with the schema it needs
+
+import urllib2, cookielib
+import zipfile, os
+import time
+import sqlite3
+import os, csv, datetime
+from datetime import datetime
+
+
+conn = sqlite3.connect("example.db")
+c = conn.cursor()
+
+#create table
+
+c.execute('CREATE TABLE prices (SYMBOL text, SERIES text, OPEN real, HIGH real, LOW real, CLOSE real, LAST real, PREVCLOSE real, TOTTRDQTY real, TOTTRDVAL real, TIMESTAMP date, TOTALTRADES real, ISIN text, PRIMARY KEY (SYMBOL, SERIES, TIMESTAMP))')
+conn.commit()
+
+def unzip(localZipFilePath, localExtractFilePath):
+
+    if os.path.exists(localZipFilePath):
+    #error checking to make sure the file is there otherwise no point in proceeding
+        print "File path " + localZipFilePath + " exists....proceeding.\n"
+        listOfFiles = []
+        #creates empty array
+        fh = open(localZipFilePath,'rb')
+        #open the zip file
+        zipFileHandler = zipfile.ZipFile(fh)
+        #zipFileHandler is from the library imported earlier
+        for filename in zipFileHandler.namelist():
+            zipFileHandler.extract(filename, localExtractFilePath)
+            #again from the library, extracts each file in a for loop and puts in specified location
+            listOfFiles.append(localExtractFilePath + filename)
+            #adds each file to the array
+            print "Extracted " + (filename) + " from the zip file to " + str(localExtractFilePath) + str(filename) 
+        print "\nIn total we extracted ", str(len(listOfFiles)), " file(s)."
+        fh.close()
+        #always close a file after using it
+    
+
+def unzipForPeriod(listOfMonths, listOfYears):
+    for year in listOfYears:
+        for month in listOfMonths:
+            for dayOfMonth in range(31) :
+                date = dayOfMonth + 1 #the index starts at 0 so add 1 to start at 1 in our count
+                dateStr = str(date) #convert number to string
+                if date < 10:
+                    datrStr = "0"+dateStr #add a leading zero so the date matches the file format
+                
+                print dateStr,"-", month,"-", year #print the current file being worked on
+                fileName = "cm"+str(dateStr)+str(month)+str(year)+"bhav.csv.zip"
+                localZipFilePath = "G:/Python/Database/" + fileName
+            
+                unzip(localZipFilePath, localExtractFilePath)
+            
+                        
+    print "Finished extraction."
+            
+            
+localExtractFilePath = "G:/Python/Database Extract/" #initialize file path
+
+listOfMonths = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC']
+listOfYears = ['2013', '2014', '2015'] 
+
+unzipForPeriod(listOfMonths, listOfYears)
+
+def insertRows(fileName, conn):
+    #using conn because programs require a connection to the database
+    c = conn.cursor()
+    lineNum = 0
+    with open(fileName, 'rb') as csvfile:
+        lineReader = csv.reader(csvfile, delimiter = ',', quotechar = "\"")
+        #tell csvreader the format of the file
+        for row in lineReader:
+            lineNum = lineNum + 1
+            if lineNum ==1:
+                print "Skipping header row."
+                continue
+                
+            date_object = datetime.strptime(row[10], '%d-%b-%Y')
+            
+            oneTuple = [row[0], row[1], float(row[2]), float(row[3]), float(row[4]), float(row[5]), float(row[6]), float(row[7]), float(row[8]), float(row[9]), date_object, float(row[11]), row[12]]
+            #insert a row into the table and includes the right format for each entry
+            c.execute("INSERT INTO prices VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)", oneTuple)
+            #placeholder values
+        conn.commit() 
+        #commit the writes to the database
+        print "Finished processing file contents."
+
+
+localExtractFilePath = "G:/Python/Database Extract/" #initialize variable
+
+#begin insert
+for file in os.listdir(localExtractFilePath):
+    if file.endswith(".csv"):
+        insertRows(localExtractFilePath+"/"+file,conn)
+        
+#run test query
+
+t1 = 'ICICIBANK'
+series = 'EQ'
+c = conn.cursor()
+cursor = c.execute ('SELECT symbol, max(close), min(close), max(timestamp), min(timestamp), count(timestamp) FROM prices WHERE symbol = ? and series = ? GROUP BY symbol ORDER BY timestamp', (t1,series))
+for row in cursor:
+    print row
+    
+import xlsxwriter
+
+
+def createExcelWithDailyPriceMoves(ticker, conn):
+    c = conn.cursor()
+    cursor = c.execute('SELECT symbol, timestamp, close FROM prices where symbol = ? and series = ? ORDER BY timestamp',(ticker, series))
+    #open connection to database and start a cursor.
+    
+    excelFileName = "G:/Python/Outputs/"+ticker+".xlsx"
+    #define the workbook and location
+    workbook = xlsxwriter.Workbook(excelFileName)
+    #create the empty workbook
+    worksheet = workbook.add_worksheet("Summary")
+    #add a name to the worksheet then enter data row by row
+    worksheet.write_row("A1",["Top Traded Stocks"])
+    worksheet.write_row("A2",['Stock','Date','Closing'])
+    #title the columns
+    lineNum = 3
+    #initialize the variable
+    for row in cursor:
+        worksheet.write_row("A"+str(lineNum), list(row))
+        print "A"+str(lineNum),list(row)
+        lineNum = lineNum+1
+        #for loop to parse the data into the worksheet
+        
+    chart1 = workbook.add_chart({'type':'line'})
+        #configure the first series
+    
+    chart1.add_series({
+            'categories': '=Summary!$B$3:$B$'+str(lineNum),
+            'values': '=Summary!$C$3:$C$'+str(lineNum)             
+        }) #tells xlsxwriter where to look for the chart data
+    
+    chart1.set_title({'name': ticker})
+    chart1.set_x_axis({'name': 'Date'})
+    chart1.set_y_axis({'name': 'Closing Price'})
+    #set up the chart
+    
+    worksheet.insert_chart('F2', chart1,{'x_offset':25, 'y_offset':10})
+    
+    #offset the chart so it doesn't overlap the data
+    
+    workbook.close()
+    #close the file to prevent it becoming corrupted
+    
+    
+conn=sqlite3.connect('example.db')
+#create a connection to a database
+
+createExcelWithDailyPriceMoves('RELIANCE',conn)
+
+#clean up the database after you are finished
+
+conn=sqlite3.connect('example.db')
+#create a connection
+c = conn.cursor()
+#create a cursor
+c.execute('DROP TABLE prices')
+#nuke it
+conn.commit()
+#commit the write so it stays put
+conn.close()
+#close the connection
