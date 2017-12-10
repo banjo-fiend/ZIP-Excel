@@ -1,0 +1,102 @@
+import urllib2
+import requests
+import zipfile, os
+import csv
+import xlsxwriter
+#initial import of previously written code
+
+urlOfFileName = "http://www.nseindia.com/content/historical/EQUITIES/2015/JUL/cm17JUL2015bhav.csv.zip"
+
+localZipFilePath = "G:/Python Course ZIP files/cm17JUL2015bhav.csv.zip"
+#location of zip file on local disk
+
+session = requests.Session()
+session.headers.update({'User-Agent': 'Custom user agent'})
+
+hdr=session.get('https://httpbin.org/headers')
+
+webRequest = urllib2.Request(urlOfFileName, headers=hdr)
+#come back to this later
+
+localExtractFilePath = "G:/Python Course ZIP files/"
+#check if the zip file is there
+
+if os.path.exists(localZipFilePath):
+    #error checking to make sure the file is there otherwise no point in proceeding
+    print "File path " + localZipFilePath + " exists....proceeding.\n"
+    listOfFiles = []
+    #creates empty array
+    fh = open(localZipFilePath,'rb')
+    #open the zip file
+    zipFileHandler = zipfile.ZipFile(fh)
+    #zipFileHandler is from the library imported earlier
+    for filename in zipFileHandler.namelist():
+        zipFileHandler.extract(filename, localExtractFilePath)
+        #again from the library, extracts each file in a for loop and puts in specified location
+        listOfFiles.append(localExtractFilePath + filename)
+        #adds each file to the array
+        print "Extracted " + (filename) + " from the zip file to " + str(localExtractFilePath) + str(filename) 
+    print "\nIn total we extracted ", str(len(listOfFiles)), " file(s)."
+    fh.close()
+    #always close a file after using it
+    
+oneFileName = listOfFiles[0]
+lineNum = 0
+listOfLists = []
+#initialize variables and arrays
+
+with open(oneFileName,'rb') as csvfile:
+    #automatically opens AND CLOSES the file when this block ends
+    lineReader = csv.reader(csvfile,delimiter=",",quotechar="\"")
+    #the csv handler needs to be told what is seperating the characters and how the cell values are cased
+    for row in lineReader:
+        lineNum = lineNum + 1
+        #keep track of what line we are on
+        if lineNum == 1:
+            print "Skipping the header.\n"
+            continue
+            
+        symbol = row[0]
+        close = row[5]
+        prevClose = row[7]
+        tradeQty = row[9]
+        #define the columns that will be converted into stock symbol, today's close, yesterday's close, and volume
+        
+        pctChange = float(close)/float(prevClose) - 1
+        #compute change in price
+        
+        oneResultRow = [symbol,pctChange,float(tradeQty)]
+        listOfLists.append(oneResultRow)
+        #put the needed values into a list and append the list of lists with the new sub list
+        
+        print symbol, "{:,.1f}".format(float(tradeQty)/1e6)  + "M INR", "{:,.1f}".format(pctChange*100)+"%"
+        #formatting the output into recognizable text
+        
+    print "Finished processing CSV file. The file is closed."
+    print "We have stock info for " + str(len(listOfLists)) + " stocks."
+
+listOfListsSortedByQty = sorted(listOfLists, key=lambda x:x[2], reverse=True)
+#sort the list by trade volume using a lambda function instead of programming our own for loops.
+listOfListsSortedByPctChange = sorted(listOfLists, key=lambda x:x[1], reverse=True)
+#sort the list by percent change
+
+excelFileName = "G:/Python Course ZIP files/cm17JUL2015bhav_PctChange.xlsx"
+#initialize a variable for the program to work with
+
+workbook = xlsxwriter.Workbook(excelFileName)
+worksheet = workbook.add_worksheet("Summary")
+#create the excel file and add a title to the worksheet
+
+worksheet.write_row("A1", ["Top Traded Stocks"])
+worksheet.write_row("A2", ["Stock Ticker","% Change","Value Traded (INR)"])
+#label the sheet and columns
+
+
+for rowNum in range(5):
+    #limit the loop to the first 5 rows, which have already been sorted
+    oneRowToWrite = listOfListsSortedByPctChange[rowNum]
+    
+    worksheet.write_row("A" + str(rowNum + 3), oneRowToWrite)
+    
+workbook.close()
+
